@@ -12,6 +12,7 @@
       list: null,                               // [string]   optional name of list belonging to username
       favorites: false,                         // [boolean]  display the user's favorites instead of his tweets
       query: null,                              // [string]   optional search query (see also: http://search.twitter.com/operators)
+      use_cache: true,                          // [boolean]  use simple HTML5 caching
       avatar_size: null,                        // [integer]  height and width of avatar if displayed (48px max)
       count: 3,                                 // [integer]  how many tweets to display?
       fetch: null,                              // [integer]  how many tweets to fetch via the API (set this higher than 'count' if using the 'filter' option)
@@ -234,14 +235,46 @@
       }
     }
 
+    function supports_html5_storage() {
+      try { return 'localStorage' in window && window.localStorage !== null; } catch (e) { return false; }
+    }
+
     function load(widget) {
-      var loading = $('<p class="loading">'+s.loading_text+'</p>');
+      var loading = $('<p class="loading">'+s.loading_text+'</p>'),
+          tweetData, now;
+
       if (s.loading_text) $(widget).not(":has(.tweet_list)").empty().append(loading);
-      $.getJSON(build_api_url(), function(data){
+
+      if (s.use_cache && supports_html5_storage() && window.localStorage.tweetData !== undefined) {
+        try {
+          tweetData = JSON.parse( window.localStorage.tweetData );
+        } catch (e) {
+          // Bad data; hack to offset (@todo: can we use break instead?)
+          tweetData = { dateStored: 0 };
+        }
+        now = new Date().getTime();
+
+        // If we have existing localStored data, check if 1 minute passed
+        if( (now - tweetData.dateStored) < 60000 ) {
+          // Not expired. Use it.
+          extract_data( tweetData.tweets, widget );
+          return true;
+        }
+      }
+
+      $.getJSON( build_api_url(), function( data ) {
+        if ( s.use_cache && supports_html5_storage() ) {
+          // If local_storage, store the results
+          window.localStorage.tweetData = JSON.stringify( { dateStored: new Date().getTime(), tweets: data } );
+        }
+        extract_data( data, widget );
+      });
+    }
+
+    function extract_data( data, widget ) {
         var tweets = $.map(data.results || data, extract_template_data);
         tweets = $.grep(tweets, s.filter).sort(s.comparator).slice(0, s.count);
-        $(widget).trigger("tweet:retrieved", [tweets]);
-      });
+        $(widget).trigger("tweet:retrieved", [tweets]);      
     }
 
     return this.each(function(i, widget){
